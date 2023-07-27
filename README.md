@@ -9,13 +9,13 @@
 
 ## Configuration
 
-| Name                                | Description                                  |
-|:------------------------------------|:---------------------------------------------|
-| Remote User Information Url         | Rest API endpoint providing users            |
-| Define endpoint for find user       | Rest API subpath for find user by name,email |
-| Define endpoint for verify password | Rest API subpath for verify user password    |
-| Define endpoint for search users    | Rest API subpath for seach users by name     |
-| Enable detail logs                  | Print detail logs                            |
+| Name                                | Default  | Description                                  |
+|:------------------------------------|:---------|:---------------------------------------------|
+| Remote User Information Url         | https:// | Rest API endpoint providing users            |
+| Define endpoint for find user       | /find    | Rest API subpath for find user by name,email |
+| Define endpoint for verify password | /verify  | Rest API subpath for verify user password    |
+| Define endpoint for search users    | /search  | Rest API subpath for seach users by name     |
+| Enable detail logs                  | false    | Print detail logs                            |
 
 ## API Response Schema
 
