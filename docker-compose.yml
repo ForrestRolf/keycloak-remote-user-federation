@@ -2,7 +2,7 @@ version: "3.7"
 
 services:
   keycloak:
-    image: keycloak/keycloak:22.0.1
+    image: keycloak/keycloak:23.0.4
     command: start-dev
     environment:
       KC_LOG_LEVEL: info
