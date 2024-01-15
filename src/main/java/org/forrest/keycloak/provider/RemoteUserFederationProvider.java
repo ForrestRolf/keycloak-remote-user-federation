@@ -7,10 +7,7 @@ import org.jboss.logging.Logger;
 import org.keycloak.component.ComponentModel;
 import org.keycloak.credential.CredentialInput;
 import org.keycloak.credential.CredentialInputValidator;
-import org.keycloak.models.GroupModel;
-import org.keycloak.models.KeycloakSession;
-import org.keycloak.models.RealmModel;
-import org.keycloak.models.UserModel;
+import org.keycloak.models.*;
 import org.keycloak.models.credential.PasswordCredentialModel;
 import org.keycloak.storage.StorageId;
 import org.keycloak.storage.UserStorageProvider;
@@ -21,7 +18,6 @@ import org.keycloak.storage.user.UserQueryProvider;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Stream;
-
 import static org.forrest.keycloak.bind.RemoteUserStorageProviderConstants.DEBUG_ENABLED;
 
 public class RemoteUserFederationProvider implements UserStorageProvider, UserLookupProvider, CredentialInputValidator, UserQueryProvider {
@@ -64,13 +60,34 @@ public class RemoteUserFederationProvider implements UserStorageProvider, UserLo
         }
     }
 
+    @Override
     public int getUsersCount(RealmModel realm) {
-        log("getUsersCount: realm=%s", realm.getName());
-        try {
-            return userService.getUserCount();
-        } catch (Exception e) {
-            throw new RuntimeException("Remote server error:" + e.getMessage(), e);
-        }
+        log("Get users count");
+        return userService.getUserCount(null).getTotal();
+    }
+
+    @Override
+    public int getUsersCount(RealmModel realm, Set<String> groupIds) {
+        log("Get users count by group %s", groupIds);
+        return userService.getUserCount(null).getTotal();
+    }
+
+    @Override
+    public int getUsersCount(RealmModel realm, Map<String, String> params) {
+        log("Get users count by params %s", params);
+        return userService.getUserCount(params).getTotal();
+    }
+
+    @Override
+    public int getUsersCount(RealmModel realm, Map<String, String> params, Set<String> groupIds) {
+        log("Get users count by params and group %s, %s", params, groupIds);
+        return userService.getUserCount(params).getTotal();
+    }
+
+    @Override
+    public int getUsersCount(RealmModel realm, boolean includeServiceAccount) {
+        log("Get users count by includeServiceAccount");
+        return userService.getUserCount(null).getTotal();
     }
 
     @Override
@@ -78,35 +95,43 @@ public class RemoteUserFederationProvider implements UserStorageProvider, UserLo
         log("closing provider");
     }
 
+
     @Override
     public UserModel getUserById(RealmModel realm, String id) {
-        log("getUserById(%s)", id);
+        log("Get user by id: %s", id);
         StorageId sid = new StorageId(id);
-        return getUserByUsername(realm, sid.getExternalId());
+        return getUser(realm, "id", sid.getExternalId());
     }
 
     @Override
     public UserModel getUserByUsername(RealmModel realm, String username) {
-        log("getUserByUsername(%s)", username);
-        try {
-            RemoteUserEntity userEntity = userService.getUser(username);
-            if (userEntity == null) {
-                log("Remote user not found");
-                return null;
-            }
-            log("Remote user %s", userEntity.toString());
-            return mapUser(realm, userEntity);
-        } catch (Exception e) {
-            log("Remote server response with error %s", e.getMessage());
-            return null;
-        }
+        log("Get user by username %s", username);
+        return getUser(realm, "username", username);
     }
 
     @Override
     public UserModel getUserByEmail(RealmModel realm, String email) {
-        log("getUserByEmail(%s)", email);
+        log("Get user by email %s", email);
+        return getUser(realm, "email", email);
+    }
+
+    private UserModel getUser(RealmModel realm, String type, String search) {
         try {
-            RemoteUserEntity userEntity = userService.getUser(email);
+            RemoteUserEntity userEntity = null;
+            switch (type) {
+                case "id": {
+                    userEntity = userService.getUserById(search);
+                    break;
+                }
+                case "username": {
+                    userEntity = userService.getUserByUsername(search);
+                    break;
+                }
+                case "email": {
+                    userEntity = userService.getUserByEmail(search);
+                    break;
+                }
+            }
             if (userEntity == null) {
                 log("Remote user not found");
                 return null;
@@ -114,26 +139,61 @@ public class RemoteUserFederationProvider implements UserStorageProvider, UserLo
             log("Remote user %s", userEntity.toString());
             return mapUser(realm, userEntity);
         } catch (Exception e) {
-            log("Remote server response with error %s", e.getMessage());
+            log("Remote server error %s", e.getMessage());
             return null;
         }
     }
 
+    @Override
+    public CredentialValidationOutput getUserByCredential(RealmModel realm, CredentialInput input) {
+        return UserLookupProvider.super.getUserByCredential(realm, input);
+    }
+
     private UserModel mapUser(RealmModel realm, RemoteUserEntity userEntity) {
-        return new RemoteUserAdapter(session, realm, model, userEntity);
+        return new RemoteUserAdapter(model, session, realm, model, userEntity);
     }
 
     @Override
     public Stream<UserModel> searchForUserStream(RealmModel realmModel, Map<String, String> params, Integer firstResult, Integer maxResults) {
-        String username = params.get(UserModel.SEARCH);
-        log("Search with username %s", username);
+        log("Search users: param=%s, firstResult=%d, maxResults=%d", params, firstResult, maxResults);
         try {
-            List<RemoteUserEntity> userEntities = userService.getUsers(username);
+            if (!params.containsKey("method")) {
+                params.put("method", "user");
+            }
+            List<RemoteUserEntity> userEntities = userService.searchUsers(params, firstResult, maxResults);
             return userEntities.stream().map(entity -> mapUser(realmModel, entity));
         } catch (IOException e) {
             log(e.getMessage());
             return Stream.empty();
         }
+    }
+
+    @Override
+    public Stream<UserModel> searchForUserStream(RealmModel realm, Map<String, String> params) {
+        return searchForUserStream(realm, params, null, null);
+    }
+
+    @Override
+    public Stream<UserModel> getRoleMembersStream(RealmModel realm, RoleModel role) {
+        Map<String, String> params = new HashMap<>() {{
+            put("method", "role");
+            put("role", role.getName());
+        }};
+        return searchForUserStream(realm, params, null, null);
+    }
+
+    @Override
+    public Stream<UserModel> getRoleMembersStream(RealmModel realm, RoleModel role, Integer firstResult, Integer maxResults) {
+        Map<String, String> params = new HashMap<>() {{
+            put("method", "role");
+            put("role", role.getName());
+        }};
+        return searchForUserStream(realm, params, firstResult, maxResults);
+    }
+
+    @Override
+    public Stream<UserModel> getGroupMembersStream(RealmModel realm, GroupModel group) {
+        return Stream.empty();
     }
 
     @Override
@@ -146,9 +206,24 @@ public class RemoteUserFederationProvider implements UserStorageProvider, UserLo
         return Stream.empty();
     }
 
+    @Override
+    public void preRemove(RealmModel realm) {
+        log("pre-remove realm");
+    }
+
+    @Override
+    public void preRemove(RealmModel realm, GroupModel group) {
+        log("pre-remove group");
+    }
+
+    @Override
+    public void preRemove(RealmModel realm, RoleModel role) {
+        log("pre-remove role");
+    }
+
     private void log(String message, Object... params) {
         if (Boolean.parseBoolean(model.get(DEBUG_ENABLED))) {
-            logger.infof("[RemoteUserFederationProvider] " + message, params);
+            logger.infof(message, params);
         }
     }
 }
